@@ -1,0 +1,11 @@
+# Foundry
+out/
+cache/
+broadcast/
+# lib/ NO se ignora: forge la maneja como submódulos de git
+
+# Node
+node_modules/
+
+# Secretos — NUNCA subir
+.env
