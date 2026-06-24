@@ -12,9 +12,10 @@ interactuar. Desplegado y **verificado en Sepolia**.
 
 | Recurso | Link |
 |---|---|
-| **YieldVault** (verificado) | https://sepolia.etherscan.io/address/0xa32f9d514804084839b59972F8b43e616BB4E32b |
+| **YieldVault** (ERC-4626, verificado) | https://sepolia.etherscan.io/address/0xa32f9d514804084839b59972F8b43e616BB4E32b |
+| **AsyncVault** (ERC-7540, verificado) | https://sepolia.etherscan.io/address/0xA4bf32Fa9a2E8d952a4d5bB08cd5d4C05dD11Bac |
 | **MockUSDC** (verificado) | https://sepolia.etherscan.io/address/0xc10b0e68f21c5fFf30D608Fe5179ED915A24e423 |
-| **dApp** | _(ver despliegue en Vercel)_ |
+| **dApp** | https://yield-vault-botpassfrontenddapp.vercel.app |
 
 ## ¿Qué hace?
 
@@ -48,7 +49,22 @@ El test `test/InflationAttack.t.sol` lo demuestra de forma contrastada:
 | Archivo | Qué es |
 |---|---|
 | [`src/YieldVault.sol`](src/YieldVault.sol) | Vault ERC-4626 + protección de inflación + cap + yield |
+| [`src/AsyncVault.sol`](src/AsyncVault.sol) | Vault asíncrono **ERC-7540** (request → fulfill → claim + operadores) — el estándar RWA |
 | [`src/MockUSDC.sol`](src/MockUSDC.sol) | Stablecoin de prueba (6 decimales, faucet abierto) |
+
+### v2 — AsyncVault (ERC-7540): el estándar de RWA
+
+Los activos del mundo real (crédito privado, treasuries tokenizados) **no liquidan al
+instante**. Por eso ERC-7540 parte el flujo en 3 pasos:
+
+1. **REQUEST** — el usuario pide depositar/retirar; sus fondos quedan `pending`.
+2. **FULFILL** — un operador cumple la request **al precio del momento**; pasa a `claimable`.
+3. **CLAIM** — el usuario reclama sus shares (o assets) ya fijados.
+
+`AsyncVault` implementa el modelo `requestId=0` (agrega las requests por `controller`),
+el patrón **operator** (delegación de cuenta), y reescribe `deposit/mint/redeem/withdraw`
+para que sean funciones de **claim** (los `preview*` se deshabilitan: el precio se fija
+en el fulfill, no se puede previsualizar). Hereda la protección de inflación del v1.
 
 ## Tests
 
@@ -57,8 +73,10 @@ export PATH="$HOME/.foundry/bin:$PATH"   # Git Bash, si forge no está en PATH
 forge test -vv
 ```
 
-14 tests en verde: contabilidad, `preview*`, redondeo, crecimiento por yield, cap,
-control de acceso, fuzzing de round-trip y el demo de ataque de inflación.
+24 tests en verde:
+- **YieldVault** (12): contabilidad, `preview*`, redondeo, crecimiento por yield, cap, control de acceso, fuzz.
+- **AsyncVault** (10): ciclo request→fulfill→claim de depósito y retiro, precio fijado en el fulfill, operadores, autorización, fulfill parcial, `preview*` deshabilitados, ERC-165.
+- **InflationAttack** (2): vault ingenuo (víctima pierde) vs protegido (neutralizado).
 
 ## Deploy
 
@@ -70,6 +88,13 @@ forge script script/Deploy.s.sol --rpc-url sepolia --broadcast --verify
 
 El script despliega MockUSDC + YieldVault, siembra liquidez (1.000 mUSDC) e inyecta
 100 de yield para que el vault arranque con TVL y precio de share > 1.
+
+Para el AsyncVault (ERC-7540), que reusa el mismo MockUSDC y corre el ciclo
+request→fulfill→claim on-chain como demo:
+
+```bash
+forge script script/DeployAsync.s.sol --rpc-url sepolia --broadcast --verify
+```
 
 ## dApp (frontend)
 
@@ -90,10 +115,10 @@ precio del share cuando entra rendimiento.
 ## Roadmap
 
 - [x] Vault ERC-4626 con protección de inflación, cap y yield
-- [x] 14 tests Foundry (incluye demo de ataque de inflación + fuzz)
-- [x] Deploy + verify en Sepolia
-- [x] dApp (approve → deposit → redeem)
-- [ ] **v2 — ERC-7540** (vault asíncrono: request/fulfill) → estándar RWA
+- [x] Deploy + verify en Sepolia + dApp (approve → deposit → redeem)
+- [x] **v2 — ERC-7540** (vault asíncrono: request/fulfill/claim + operadores) → estándar RWA, desplegado + verificado
+- [x] 24 tests Foundry (incluye demo de ataque de inflación + fuzz + ciclo async completo)
+- [ ] v3 — `authorizeOperator` con firma EIP-712 + dApp del flujo async
 
 ---
 
