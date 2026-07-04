@@ -164,6 +164,11 @@ contract YieldVaultTest is Test {
         vault.deposit(1, bob);
     }
 
+    function test_MaxMint_UnlimitedWhenCapIsMax() public {
+        vault.setDepositCap(type(uint256).max);
+        assertEq(vault.maxMint(alice), type(uint256).max);
+    }
+
     function test_MaxDepositReportsRemaining() public {
         vault.setDepositCap(1000 * USDC);
         vm.prank(alice);

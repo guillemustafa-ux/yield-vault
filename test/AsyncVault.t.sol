@@ -218,4 +218,193 @@ contract AsyncVaultTest is Test {
         assertEq(vault.maxDeposit(alice), 100 * USDC);
         assertEq(vault.maxMint(alice), vault.claimableDepositShares(alice));
     }
+
+    // ---- claim vía mint() (shares exactas) ----
+
+    function test_MintClaimsExactShares() public {
+        vm.prank(alice);
+        vault.requestDeposit(100 * USDC, alice, alice);
+        uint256 shares = vault.fulfillDeposit(alice, 100 * USDC);
+
+        vm.prank(alice);
+        uint256 assetsPaid = vault.mint(shares, alice, alice);
+
+        assertEq(assetsPaid, 100 * USDC);
+        assertEq(vault.balanceOf(alice), shares);
+        assertEq(vault.claimableDepositShares(alice), 0);
+        assertEq(vault.claimableDepositAssets(alice), 0);
+    }
+
+    function test_Mint_TwoArgOverload_UsesMsgSenderAsController() public {
+        vm.prank(alice);
+        vault.requestDeposit(100 * USDC, alice, alice);
+        uint256 shares = vault.fulfillDeposit(alice, 100 * USDC);
+
+        vm.prank(alice);
+        vault.mint(shares, alice); // overload de 2 args = controller implícito msg.sender
+
+        assertEq(vault.balanceOf(alice), shares);
+    }
+
+    function test_Mint_RevertsIfExceedsClaimable() public {
+        vm.prank(alice);
+        vault.requestDeposit(100 * USDC, alice, alice);
+        uint256 shares = vault.fulfillDeposit(alice, 100 * USDC);
+
+        vm.prank(alice);
+        vm.expectRevert(AsyncVault.ExceedsClaimable.selector);
+        vault.mint(shares + 1, alice, alice);
+    }
+
+    // ---- claim vía withdraw() (assets exactos) ----
+
+    function test_WithdrawClaimsExactAssets() public {
+        uint256 shares = _depositFor(alice, 100 * USDC);
+        uint256 balBefore = usdc.balanceOf(alice);
+
+        vm.prank(alice);
+        vault.requestRedeem(shares, alice, alice);
+        vault.fulfillRedeem(alice, shares);
+
+        vm.prank(alice);
+        uint256 sharesBurned = vault.withdraw(100 * USDC, alice, alice);
+
+        assertEq(sharesBurned, shares);
+        assertEq(usdc.balanceOf(alice), balBefore + 100 * USDC);
+        assertEq(vault.claimableRedeemAssets(alice), 0);
+    }
+
+    function test_Withdraw_RevertsIfExceedsClaimable() public {
+        uint256 shares = _depositFor(alice, 100 * USDC);
+        vm.prank(alice);
+        vault.requestRedeem(shares, alice, alice);
+        vault.fulfillRedeem(alice, shares);
+
+        vm.prank(alice);
+        vm.expectRevert(AsyncVault.ExceedsClaimable.selector);
+        vault.withdraw(100 * USDC + 1, alice, alice);
+    }
+
+    function test_Withdraw_RevertsIfUnauthorized() public {
+        uint256 shares = _depositFor(alice, 100 * USDC);
+        vm.prank(alice);
+        vault.requestRedeem(shares, alice, alice);
+        vault.fulfillRedeem(alice, shares);
+
+        vm.prank(bob);
+        vm.expectRevert(AsyncVault.NotAuthorized.selector);
+        vault.withdraw(100 * USDC, bob, alice);
+    }
+
+    // ---- overload de 2 args de deposit() ----
+
+    function test_Deposit_TwoArgOverload_UsesMsgSenderAsController() public {
+        vm.prank(alice);
+        vault.requestDeposit(100 * USDC, alice, alice);
+        vault.fulfillDeposit(alice, 100 * USDC);
+
+        vm.prank(alice);
+        uint256 shares = vault.deposit(100 * USDC, alice); // controller implícito
+
+        assertGt(shares, 0);
+        assertEq(vault.balanceOf(alice), shares);
+    }
+
+    // ---- vistas restantes del estándar ERC-7540 ----
+
+    function test_ViewGetters_ReflectState() public {
+        vm.prank(alice);
+        vault.requestDeposit(100 * USDC, alice, alice);
+        vault.fulfillDeposit(alice, 100 * USDC);
+        assertEq(vault.claimableDepositRequest(0, alice), 100 * USDC);
+
+        // Reclamamos el depósito para tener shares y poder pedir un redeem.
+        vm.prank(alice);
+        vault.deposit(100 * USDC, alice, alice);
+        uint256 shares = vault.balanceOf(alice);
+
+        vm.prank(alice);
+        vault.requestRedeem(shares, alice, alice);
+        assertEq(vault.pendingRedeemRequest(0, alice), shares);
+
+        vault.fulfillRedeem(alice, shares);
+        assertEq(vault.claimableRedeemRequest(0, alice), shares);
+        assertEq(vault.maxRedeem(alice), shares);
+        assertEq(vault.maxWithdraw(alice), vault.claimableRedeemAssets(alice));
+    }
+
+    // ---- guard clauses (ZeroAmount / ExceedsPending / ExceedsClaimable / NotAuthorized) ----
+    // Cada función del ciclo repite las mismas 4 validaciones; se cubre una vez
+    // por guard en el punto donde primero aparece, no exhaustivamente en las 8
+    // funciones (serían ~25 tests casi idénticos por poco valor adicional).
+
+    function test_RequestDeposit_RevertsOnZeroAmount() public {
+        vm.prank(alice);
+        vm.expectRevert(AsyncVault.ZeroAmount.selector);
+        vault.requestDeposit(0, alice, alice);
+    }
+
+    function test_RequestRedeem_RevertsOnZeroAmount() public {
+        vm.prank(alice);
+        vm.expectRevert(AsyncVault.ZeroAmount.selector);
+        vault.requestRedeem(0, alice, alice);
+    }
+
+    function test_FulfillDeposit_RevertsOnZeroAmount() public {
+        vm.prank(alice);
+        vault.requestDeposit(100 * USDC, alice, alice);
+        vm.expectRevert(AsyncVault.ZeroAmount.selector);
+        vault.fulfillDeposit(alice, 0);
+    }
+
+    function test_FulfillRedeem_RevertsIfExceedsPending() public {
+        uint256 shares = _depositFor(alice, 100 * USDC);
+        vm.prank(alice);
+        vault.requestRedeem(shares, alice, alice);
+
+        vm.expectRevert(AsyncVault.ExceedsPending.selector);
+        vault.fulfillRedeem(alice, shares + 1);
+    }
+
+    function test_Deposit_RevertsOnZeroAmount() public {
+        vm.prank(alice);
+        vault.requestDeposit(100 * USDC, alice, alice);
+        vault.fulfillDeposit(alice, 100 * USDC);
+
+        vm.prank(alice);
+        vm.expectRevert(AsyncVault.ZeroAmount.selector);
+        vault.deposit(0, alice, alice);
+    }
+
+    function test_Redeem_RevertsOnZeroAmount() public {
+        uint256 shares = _depositFor(alice, 100 * USDC);
+        vm.prank(alice);
+        vault.requestRedeem(shares, alice, alice);
+        vault.fulfillRedeem(alice, shares);
+
+        vm.prank(alice);
+        vm.expectRevert(AsyncVault.ZeroAmount.selector);
+        vault.redeem(0, alice, alice);
+    }
+
+    function test_Redeem_RevertsIfUnauthorized() public {
+        uint256 shares = _depositFor(alice, 100 * USDC);
+        vm.prank(alice);
+        vault.requestRedeem(shares, alice, alice);
+        vault.fulfillRedeem(alice, shares);
+
+        vm.prank(bob);
+        vm.expectRevert(AsyncVault.NotAuthorized.selector);
+        vault.redeem(shares, bob, alice);
+    }
+
+    function test_Mint_RevertsIfUnauthorized() public {
+        vm.prank(alice);
+        vault.requestDeposit(100 * USDC, alice, alice);
+        uint256 shares = vault.fulfillDeposit(alice, 100 * USDC);
+
+        vm.prank(bob);
+        vm.expectRevert(AsyncVault.NotAuthorized.selector);
+        vault.mint(shares, bob, alice);
+    }
 }

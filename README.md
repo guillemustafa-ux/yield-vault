@@ -8,6 +8,13 @@ interactuar. Desplegado y **verificado en Sepolia**.
 > tokenización de activos del mundo real (**RWA** — Centrifuge, Ondo). Este repo
 > es el on-ramp a ese tipo de trabajo.
 
+| | |
+|---|---|
+| **Tooling** | Foundry (forge), OpenZeppelin v5.6.1, SafeERC20 |
+| **Tests** | 45 passing — unit, fuzz, 4 stateful invariants |
+| **Coverage** | 100% funciones en YieldVault y AsyncVault |
+| **CI** | GitHub Actions — build, test suite completo, gas snapshot, coverage |
+
 ## 🔗 En vivo
 
 | Recurso | Link |
@@ -70,13 +77,37 @@ en el fulfill, no se puede previsualizar). Hereda la protección de inflación d
 
 ```bash
 export PATH="$HOME/.foundry/bin:$PATH"   # Git Bash, si forge no está en PATH
-forge test -vv
+forge test -vv                            # 45 tests (unit + fuzz + invariant)
+forge coverage --report summary           # 100% funciones en YieldVault y AsyncVault
+forge snapshot --no-match-contract Invariant   # regenerar .gas-snapshot tras un cambio
 ```
 
-24 tests en verde:
-- **YieldVault** (12): contabilidad, `preview*`, redondeo, crecimiento por yield, cap, control de acceso, fuzz.
-- **AsyncVault** (10): ciclo request→fulfill→claim de depósito y retiro, precio fijado en el fulfill, operadores, autorización, fulfill parcial, `preview*` deshabilitados, ERC-165.
+45 tests en verde:
+- **YieldVault** (12, 100% líneas/statements/branches/funciones): contabilidad, `preview*`, redondeo, crecimiento por yield, cap, control de acceso, fuzz.
+- **AsyncVault** (28, 100% líneas/funciones): ciclo request→fulfill→claim completo (depósito Y retiro, incluidos `mint`/`withdraw` como rutas de claim), precio fijado en el fulfill, operadores, autorización, fulfill parcial, `preview*` deshabilitados, ERC-165.
 - **InflationAttack** (2): vault ingenuo (víctima pierde) vs protegido (neutralizado).
+- **4 invariant tests** (ver abajo): 256 secuencias aleatorias × 50 pasos cada una, 0 reverts.
+
+## Stateful invariant testing
+
+Unit tests prueban un escenario a la vez; los **invariantes** corren cientos de
+*secuencias* aleatorias de llamadas (vía un "handler" con actores fijos) y verifican
+que una propiedad se sostenga **después de cada una**:
+
+- [`test/YieldVaultInvariant.t.sol`](test/YieldVaultInvariant.t.sol):
+  - **Solvencia**: `sum(convertToAssets(balanceOf(actor)))` nunca supera `totalAssets()`
+    — el vault nunca puede deberle a los actores más de lo que tiene.
+  - **Precio monotónico**: el valor de 1 share nunca baja (solo sube con yield o queda igual).
+- [`test/AsyncVaultInvariant.t.sol`](test/AsyncVaultInvariant.t.sol):
+  - **Los 3 buckets de assets siempre cierran**: `balanceOf(vault) == totalAssets() +
+    totalPendingDepositAssets + totalClaimableRedeemAssets`. Esta es LA propiedad
+    crítica de un vault async — si los buckets no suman exacto el balance real del
+    token, hay plata que se duplicó o se perdió en algún paso del ciclo.
+  - **Precio monotónico** (mismo criterio que en YieldVault).
+
+`forge test` corre 256 secuencias de hasta 50 llamadas cada una (`foundry.toml`,
+tuneado para que CI termine en segundos; se validó primero con profundidad completa
+localmente antes de bajarla).
 
 ## Deploy
 
@@ -117,7 +148,7 @@ precio del share cuando entra rendimiento.
 - [x] Vault ERC-4626 con protección de inflación, cap y yield
 - [x] Deploy + verify en Sepolia + dApp (approve → deposit → redeem)
 - [x] **v2 — ERC-7540** (vault asíncrono: request/fulfill/claim + operadores) → estándar RWA, desplegado + verificado
-- [x] 24 tests Foundry (incluye demo de ataque de inflación + fuzz + ciclo async completo)
+- [x] **F0 hardening**: 45 tests (100% funciones), 4 invariant tests, gas snapshot, CI en GitHub Actions
 - [ ] v3 — `authorizeOperator` con firma EIP-712 + dApp del flujo async
 
 ---
