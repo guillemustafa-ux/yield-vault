@@ -73,6 +73,16 @@ el patrón **operator** (delegación de cuenta), y reescribe `deposit/mint/redee
 para que sean funciones de **claim** (los `preview*` se deshabilitan: el precio se fija
 en el fulfill, no se puede previsualizar). Hereda la protección de inflación del v1.
 
+## Contenido relacionado
+
+Serie "RWA para devs" (4 piezas) sobre el estándar async ERC-7540 implementado en
+este repo (`AsyncVault.sol`):
+
+1. [RWA para devs (1/4): por qué tokenizar un T-bill no es un ERC-20 con otro nombre](#) <!-- agregar URL -->
+2. [RWA para devs (2/4): cómo funciona el ciclo request→fulfill→claim en código](#) <!-- agregar URL -->
+3. [RWA para devs (3/4): el mecanismo de fulfillRedeem — quién puede ejecutarlo y por qué importa](#) <!-- agregar URL -->
+4. [RWA para devs (4/4): ERC-7540 vs ERC-4626 — qué agrega el estándar async y cuándo usarlo](#) <!-- agregar URL -->
+
 ## Tests
 
 ```bash
